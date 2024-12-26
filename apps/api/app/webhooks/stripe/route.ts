@@ -1,5 +1,5 @@
 import { analytics } from '@repo/analytics/posthog/server';
-import { clerkClient } from '@repo/auth/server';
+import { createClient } from '@repo/auth/server';
 import { env } from '@repo/env';
 import { parseError } from '@repo/observability/error';
 import { log } from '@repo/observability/log';
@@ -9,10 +9,35 @@ import { headers } from 'next/headers';
 import { NextResponse } from 'next/server';
 
 const getUserFromCustomerId = async (customerId: string) => {
-  const clerk = await clerkClient();
-  const users = await clerk.users.getUserList();
+  const supabase = await createClient();
+  const { data: users, error } = await supabase.from('users').select('*').eq('stripe_customer_id', customerId);
 
-  const user = users.data.find(
+  if (error) {
+    const message = parseError(error);
+    log.error(message);
+    
+    return NextResponse.json(
+      {
+        message: 'something went wrong',
+        ok: false,
+      },
+      { status: 500 }
+    );
+  }
+
+  if (!users.length) {
+    log.warn('User not found');
+
+    return NextResponse.json(
+      {
+        message: 'User not found',
+        ok: false,
+      },
+      { status: 404 }
+    );
+  }
+
+  const user = users.find(
     (user) => user.privateMetadata.stripeCustomerId === customerId
   );
 
